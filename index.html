@@ -3,9 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MousePlay - Universal</title>
-<!-- CARREGAMENTO DO MOTOR DE VÍDEO -->
-<script src="https://cdn.jsdelivr.net"></script>
+<title>MousePlay - Versão Blindada</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -13,9 +11,9 @@
   --acc:#00c2ff; --acc2:#0077ff; --red:#ff3b5c; --txt:#e8edf2;
   --mut:#5a6478; --brd:#1e2530;
 }
-body{background:var(--bg);color:var(--txt);font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;overflow:hidden}
+body{background:var(--bg);color:var(--txt);font-family:ui-sans-serif,system-ui,sans-serif;overflow:hidden;min-height:100vh}
 
-/* VISUAL CINEMATOGRÁFICO ORIGINAL */
+/* SEU VISUAL CINEMATOGRÁFICO ORIGINAL */
 #sc-login{display:flex;align-items:center;justify-content:center;min-height:100vh;position:relative;overflow:hidden;background:#07080a;}
 #sc-login::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0,194,255,.06) 0%, transparent 60%);pointer-events:none;}
 .film-strip{position:absolute;display:flex;flex-direction:column;gap:3px;pointer-events:none;opacity:.18;width:40px;top:0;bottom:0;}
@@ -27,9 +25,8 @@ body{background:var(--bg);color:var(--txt);font-family:ui-sans-serif,system-ui,s
 .login-logo{font-size:42px;font-weight:800;text-align:center;background:linear-gradient(135deg,var(--acc),var(--acc2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:2px}
 .login-sub{font-size:10px;color:var(--mut);letter-spacing:2px;text-transform:uppercase;margin-bottom:32px;text-align:center}
 .card{background:rgba(15,19,24,.95);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:28px;box-shadow:0 24px 60px rgba(0,0,0,.6);}
-.inp{width:100%;background:var(--s2);border:1px solid var(--brd);border-radius:8px;padding:12px;color:var(--txt);margin-bottom:12px;outline:none;font-family:inherit}
-.inp:focus{border-color:var(--acc)}
-.btn-connect{width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;border-radius:8px;padding:14px;color:#000;font-weight:700;cursor:pointer;opacity:0.6}
+.inp{width:100%;background:var(--s2);border:1px solid var(--brd);border-radius:8px;padding:12px;color:var(--txt);margin-bottom:12px;outline:none}
+.btn-connect{width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;border-radius:8px;padding:14px;color:#000;font-weight:700;cursor:pointer}
 
 /* PLAYER */
 #sc-main{display:none;width:100vw;height:100vh;background:#000;position:fixed;inset:0;z-index:99}
@@ -47,11 +44,11 @@ video{width:100%;height:100%}
         <div class="login-logo">MousePlay</div>
         <div class="login-sub">Cinema Experience</div>
         <div class="card">
-            <input type="text" id="dns" class="inp" placeholder="DNS do Servidor (ex: http://link.com:80)">
+            <input type="text" id="dns" class="inp" placeholder="DNS do Servidor" value="">
             <input type="text" id="user" class="inp" placeholder="Usuário">
             <input type="password" id="pass" class="inp" placeholder="Senha">
-            <button class="btn-connect" id="btn-entrar" onclick="conectar()" disabled>AGUARDE...</button>
-            <div id="status">Verificando motor de vídeo...</div>
+            <button class="btn-connect" id="btn-entrar" onclick="conectar()">ENTRAR</button>
+            <div id="status">Iniciando sistema...</div>
         </div>
     </div>
 </div>
@@ -61,20 +58,19 @@ video{width:100%;height:100%}
 </div>
 
 <script>
-// 1. SISTEMA ANTI-ERRO: Verifica se o motor de vídeo carregou
-function verificarMotor() {
-    const btn = document.getElementById('btn-entrar');
-    const status = document.getElementById('status');
-    if (typeof Hls !== 'undefined') {
-        btn.disabled = false;
-        btn.innerText = "ENTRAR";
-        btn.style.opacity = "1";
-        status.innerText = "Sistema Pronto";
-    } else {
-        setTimeout(verificarMotor, 1000);
-    }
-}
-window.onload = verificarMotor;
+// SOLUÇÃO FINAL: Carregamento forçado via código
+(function loadHls() {
+    const script = document.createElement('script');
+    script.src = "https://cdn.jsdelivr.net";
+    script.onload = () => {
+        document.getElementById('status').innerText = "Sistema Pronto";
+        console.log("HLS Carregado com sucesso");
+    };
+    script.onerror = () => {
+        document.getElementById('status').innerText = "Erro ao carregar motor. Tente recarregar.";
+    };
+    document.head.appendChild(script);
+})();
 
 function conectar() {
     let dns = document.getElementById('dns').value.trim();
@@ -82,20 +78,22 @@ function conectar() {
     const pass = document.getElementById('pass').value.trim();
     const status = document.getElementById('status');
 
+    if (typeof Hls === 'undefined') {
+        status.innerText = "Aguarde o motor de vídeo...";
+        return;
+    }
+
     if (!dns || !user || !pass) {
-        status.style.color = "var(--red)";
         status.innerText = "Preencha todos os campos!";
         return;
     }
 
-    // 2. LÓGICA UNIVERSAL DE DNS: Garante que a URL esteja correta
     if (!dns.startsWith('http')) dns = 'http://' + dns;
-    dns = dns.replace(/\/$/, ""); // Remove barra no final se houver
+    dns = dns.replace(/\/$/, "");
 
-    status.style.color = "var(--acc)";
-    status.innerText = "Conectando ao Cinema...";
+    status.innerText = "Conectando...";
 
-    // 3. PROXY UNIVERSAL: Burlar bloqueios de segurança (HTTPS vs HTTP e CORS)
+    // Usando Proxy para evitar erro de Mixed Content (HTTPS -> HTTP)
     const streamUrl = `https://api.allorigins.win{encodeURIComponent(dns + '/live/' + user + '/' + pass + '/1.m3u8')}`;
 
     document.getElementById('sc-login').style.display = 'none';
@@ -107,18 +105,9 @@ function conectar() {
 function iniciarPlayer(url) {
     const video = document.getElementById('video');
     if (Hls.isSupported()) {
-        const hls = new Hls({
-            xhrSetup: function(xhr) {
-                xhr.withCredentials = false; // Necessário para evitar erro 403 em alguns servidores
-            }
-        });
+        const hls = new Hls();
         hls.loadSource(url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.ERROR, function(e, data) {
-            if(data.fatal) {
-                console.error("Erro no streaming. Verifique os dados.");
-            }
-        });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url;
     }
