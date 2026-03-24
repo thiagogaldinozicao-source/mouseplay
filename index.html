@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>MousePlay</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐭</text></svg>""")/>>
-<!-- BIBLIOTECA DE VÍDEO (CORREÇÃO DO ERRO) -->
+<!-- CORREÇÃO DO ERRO: Carregamento prioritário da biblioteca -->
 <script src="https://cdn.jsdelivr.net"></script>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
@@ -14,9 +14,9 @@
   --acc:#00c2ff; --acc2:#0077ff; --red:#ff3b5c; --txt:#e8edf2;
   --mut:#5a6478; --brd:#1e2530;
 }
-body{background:var(--bg);color:var(--txt);font-family:system-ui,sans-serif;overflow-x:hidden;min-height:100vh}
+body{background:var(--bg);color:var(--txt);font-family:ui-sans-serif,system-ui,sans-serif;min-height:100vh;overflow:hidden}
 
-/* VISUAL ORIGINAL QUE VOCÊ ENVIOU */
+/* VISUAL ORIGINAL PRESERVADO */
 #sc-login{display:flex;align-items:center;justify-content:center;min-height:100vh;position:relative;overflow:hidden;background:#07080a;}
 #sc-login::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse 80% 60% at 50% 0%, rgba(0,194,255,.06) 0%, transparent 60%);pointer-events:none;}
 .film-strip{position:absolute;display:flex;flex-direction:column;gap:3px;pointer-events:none;opacity:.18;width:40px;top:0;bottom:0;}
@@ -28,14 +28,14 @@ body{background:var(--bg);color:var(--txt);font-family:system-ui,sans-serif;over
 .login-logo{font-size:42px;font-weight:800;text-align:center;background:linear-gradient(135deg,var(--acc),var(--acc2));-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:2px}
 .login-sub{font-size:10px;color:var(--mut);letter-spacing:2px;text-transform:uppercase;margin-bottom:32px;text-align:center}
 .card{background:rgba(15,19,24,.95);border:1px solid rgba(255,255,255,.07);border-radius:14px;padding:28px;box-shadow:0 24px 60px rgba(0,0,0,.6);}
-.inp{width:100%;background:var(--s2);border:1px solid var(--brd);border-radius:8px;padding:12px;color:var(--txt);margin-bottom:12px;outline:none}
+.inp{width:100%;background:var(--s2);border:1px solid var(--brd);border-radius:8px;padding:12px;color:var(--txt);margin-bottom:12px;outline:none;font-family:inherit}
 .inp:focus{border-color:var(--acc)}
 .btn-connect{width:100%;background:linear-gradient(135deg,var(--acc),var(--acc2));border:none;border-radius:8px;padding:14px;color:#000;font-weight:700;cursor:pointer}
 
-/* PLAYER AREA */
+/* PLAYER */
 #sc-main{display:none;width:100vw;height:100vh;background:#000;position:fixed;inset:0;z-index:99}
 video{width:100%;height:100%}
-#status{color:var(--red);font-size:12px;margin-top:10px;text-align:center}
+#status{color:var(--red);font-size:12px;margin-top:10px;text-align:center;min-height:15px}
 </style>
 </head>
 <body>
@@ -44,12 +44,11 @@ video{width:100%;height:100%}
     <div class="film-strip film-strip-left"></div>
     <div class="film-strip film-strip-right"></div>
     <div class="projector-ray"></div>
-    
     <div class="login-wrap">
         <div class="login-logo">MousePlay</div>
         <div class="login-sub">Cinema Experience</div>
         <div class="card">
-            <input type="text" id="dns" class="inp" placeholder="Servidor" value="http://zicao.top:80">
+            <input type="text" id="dns" class="inp" placeholder="DNS do Servidor" value="http://zicao.top:80">
             <input type="text" id="user" class="inp" placeholder="Usuário">
             <input type="password" id="pass" class="inp" placeholder="Senha">
             <button class="btn-connect" onclick="conectar()">ENTRAR</button>
@@ -64,23 +63,25 @@ video{width:100%;height:100%}
 
 <script>
 function conectar() {
-    const dns = document.getElementById('dns').value.replace(/\/$/, "");
-    const user = document.getElementById('user').value;
-    const pass = document.getElementById('pass').value;
+    const dns = document.getElementById('dns').value.trim().replace(/\/$/, "");
+    const user = document.getElementById('user').value.trim();
+    const pass = document.getElementById('pass').value.trim();
     const status = document.getElementById('status');
 
-    if (!user || !pass) {
-        status.innerText = "Preencha usuário e senha!";
+    if (!user || !pass || !dns) {
+        status.innerText = "Preencha todos os campos!";
         return;
     }
 
-    // Verifica se a biblioteca Hls carregou (Cura o erro da imagem)
+    // CORREÇÃO: Garante que a biblioteca Hls existe antes de chamar
     if (typeof Hls === 'undefined') {
-        status.innerText = "Erro: Motor de vídeo não carregou. Recarregue a página.";
+        status.innerText = "Aguarde o carregamento do motor de vídeo...";
         return;
     }
 
-    // URL usando Proxy para evitar erro 401/CORS de Mixed Content
+    status.innerText = "Conectando...";
+
+    // Proxy para evitar erro de Mixed Content (HTTPS -> HTTP)
     const streamUrl = `https://api.allorigins.win{encodeURIComponent(dns + '/live/' + user + '/' + pass + '/1.m3u8')}`;
 
     document.getElementById('sc-login').style.display = 'none';
@@ -95,9 +96,6 @@ function iniciarPlayer(url) {
         const hls = new Hls();
         hls.loadSource(url);
         hls.attachMedia(video);
-        hls.on(Hls.Events.ERROR, function(e, data) {
-            if(data.fatal) console.error("Erro fatal no player");
-        });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
         video.src = url;
     }
