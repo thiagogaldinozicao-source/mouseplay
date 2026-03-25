@@ -564,6 +564,8 @@ google-cast-launcher{
     <div class="login-logo">🐭 MousePlay</div>
     <div class="login-sub">Bem-vindo</div>
     <div class="card">
+      <label class="lbl">DNS (Servidor)</label>
+      <input class="inp" id="i-url" placeholder="http://exemplo.com:8080" autocomplete="off"/>
       <label class="lbl">Usuário</label>
       <input class="inp" id="i-usr" placeholder="seu_usuario" autocomplete="off"/>
       <label class="lbl">Senha</label>
@@ -577,18 +579,6 @@ google-cast-launcher{
       </div>
       <button class="btn-connect" id="btn-conn" onclick="doLogin()">▶ Entrar</button>
       <div class="err-box" id="err"></div>
-      <!-- Modo avançado — servidor manual -->
-      <div style="text-align:center;margin-top:14px">
-        <button onclick="toggleAdvanced()" style="background:none;border:none;color:var(--mut);
-          font-size:12px;cursor:pointer;text-decoration:underline">⚙ Configuração avançada</button>
-      </div>
-      <div id="adv-fields" style="display:none;margin-top:12px;border-top:1px solid var(--brd);padding-top:12px">
-        <label class="lbl">URL do Servidor (opcional)</label>
-        <input class="inp" id="i-url" placeholder="http://servidor.com:8080"/>
-        <div style="font-size:11px;color:var(--mut);margin-top:-6px;margin-bottom:8px">
-          Deixe vazio para detecção automática
-        </div>
-      </div>
     </div>
   </div>
 </div>
@@ -1001,22 +991,27 @@ function playStream(url){
 }
 
 // ══════════ API ══════════
-// Proxies CORS públicos — tenta um por um se falhar
+// ┌─────────────────────────────────────────────────────┐
+// │  COLE AQUI a URL do seu Cloudflare Worker:          │
+// │  (veja o arquivo worker.js para instruções)         │
+// └─────────────────────────────────────────────────────┘
+const WORKER_URL = "https://mouseplay-proxy.thiagogaldinozicao.workers.dev"; // Cloudflare Worker proxy
+
+// Fallback: proxies públicos (instáveis, usados se Worker não configurado)
 const CORS_PROXIES=[
   "https://corsproxy.io/?",
   "https://api.allorigins.win/raw?url=",
-  "https://cors-anywhere.herokuapp.com/",
 ];
-let activeProxy=0;
 
 function needsProxy(){
-  // Usa proxy se servidor for http:// e estamos em https://
   return S.server.startsWith("http://") && location.protocol==="https:";
 }
 
 function proxify(url){
   if(!needsProxy()) return url;
-  return CORS_PROXIES[activeProxy] + encodeURIComponent(url);
+  // Prioridade: Worker próprio > proxies públicos
+  if(WORKER_URL) return WORKER_URL + "?url=" + encodeURIComponent(url);
+  return CORS_PROXIES[0] + encodeURIComponent(url);
 }
 
 function api(action,extra=""){
@@ -1024,39 +1019,53 @@ function api(action,extra=""){
 }
 
 function streamUrl(id,type){
-  // Streams não passam por proxy — player nativo lida direto
-  if(type==="channel") return `${S.server}/live/${S.user}/${S.pass}/${id}.m3u8`;
-  if(type==="movie")   return `${S.server}/movie/${S.user}/${S.pass}/${id}.mp4`;
-  return `${S.server}/series/${S.user}/${S.pass}/${id}.mp4`;
+  const base=S.server;
+  // Streams: usa Worker se precisar de proxy (resolve Mixed Content nos players também)
+  let url="";
+  if(type==="channel") url=`${base}/live/${S.user}/${S.pass}/${id}.m3u8`;
+  else if(type==="movie") url=`${base}/movie/${S.user}/${S.pass}/${id}.mp4`;
+  else url=`${base}/series/${S.user}/${S.pass}/${id}.mp4`;
+  // Se estamos em HTTPS e servidor é HTTP, precisa proxy pro stream também
+  if(needsProxy() && WORKER_URL) return WORKER_URL + "?url=" + encodeURIComponent(url);
+  return url;
 }
 
 async function apiFetch(action,extra=""){
   const url=api(action,extra);
-  // Tenta sem proxy primeiro, depois com proxy se falhar
   let lastErr=null;
-  const attempts=needsProxy()?CORS_PROXIES.length+1:1;
-  for(let i=0;i<attempts;i++){
+
+  // Monta lista de tentativas
+  const attempts=[];
+  if(!needsProxy()){
+    // Mesmo protocolo — chama direto
+    attempts.push(url);
+  } else {
+    // Mixed content — precisa proxy
+    if(WORKER_URL){
+      // Worker próprio (confiável)
+      attempts.push(WORKER_URL + "?url=" + encodeURIComponent(url));
+    }
+    // Direto (pode funcionar em HTTP)
+    attempts.push(url);
+    // Fallback: proxies públicos
+    CORS_PROXIES.forEach(p=>attempts.push(p + encodeURIComponent(url)));
+  }
+
+  for(let i=0;i<attempts.length;i++){
     try{
-      activeProxy=Math.max(0,i-1);
-      const fetchUrl=i===0?url:CORS_PROXIES[i-1]+encodeURIComponent(url);
       const ctrl=new AbortController();
-      const timer=setTimeout(()=>ctrl.abort(),8000);
-      const r=await fetch(fetchUrl,{signal:ctrl.signal});
+      const timer=setTimeout(()=>ctrl.abort(),10000);
+      const r=await fetch(attempts[i],{signal:ctrl.signal});
       clearTimeout(timer);
       if(!r.ok) throw new Error("HTTP "+r.status);
       const data=await r.json();
       return data;
     }catch(e){
       lastErr=e;
-      console.warn(`[MousePlay] Tentativa ${i+1} falhou:`,e.message);
+      console.warn(`[MousePlay] Tentativa ${i+1}/${attempts.length} falhou:`,e.message);
     }
   }
-  throw lastErr||new Error("Falha na conexão");
-}
-
-function toggleAdvanced(){
-  const el=document.getElementById("adv-fields");
-  el.style.display=el.style.display==="none"?"block":"none";
+  throw lastErr||new Error("Falha na conexão — verifique se o Worker está configurado");
 }
 
 function toggleSenha(){
@@ -1068,93 +1077,73 @@ function toggleSenha(){
 }
 
 // ══════════ DNS SERVER LIST ══════════
-// Lista de servidores pra testar automaticamente
-// Você adiciona aqui os servidores dos seus clientes
+// Adicione TODOS os seus servidores aqui.
+// O app testa todos automaticamente no login — o primeiro que responder, conecta.
+// Formato: "http://servidor.com:porta" (sem barra no final)
 const DNS_SERVERS=[
-  // Adicione seus servidores aqui — o app testa todos automaticamente
-  // Exemplo: "http://zicao.top",
-  // Exemplo: "http://meuservidor.com:8080",
+  // ── Cole seus servidores abaixo ──
+  // "http://zicao.top",
+  // "http://servidor2.com:8080",
+  // "http://servidor3.com:25461",
+  // ── Adicione quantos quiser ──
 ];
 
 async function tryServer(server,usr,pwd){
-  // Corrige typos de esquema (htttp, htttps, etc)
-  server=server.replace(/^htttp+s?:\/\//,"http").replace(/^htttps+:\/\//,"https");
-  if(!server.match(/^https?:\/\//)) server="http://"+server;
-  
   const url=`${server}/player_api.php?username=${encodeURIComponent(usr)}&password=${encodeURIComponent(pwd)}&action=authenticate`;
   
-  // Tenta direto primeiro, depois com proxy CORS
-  const proxies=["", "https://corsproxy.io/?"];
+  // Monta tentativas: Worker > direto > proxies públicos
+  const attempts=[];
+  const isHTTP=server.startsWith("http://") && location.protocol==="https:";
   
-  for(const proxy of proxies){
+  if(isHTTP && WORKER_URL){
+    attempts.push(WORKER_URL + "?url=" + encodeURIComponent(url));
+  }
+  attempts.push(url); // direto
+  if(isHTTP){
+    CORS_PROXIES.forEach(p=>attempts.push(p + encodeURIComponent(url)));
+  }
+  
+  for(const fetchUrl of attempts){
     try{
-      const fetchUrl=proxy?proxy+encodeURIComponent(url):url;
       const ctrl=new AbortController();
-      const timer=setTimeout(()=>ctrl.abort(),6000);
+      const timer=setTimeout(()=>ctrl.abort(),8000);
       const r=await fetch(fetchUrl,{signal:ctrl.signal});
       clearTimeout(timer);
       if(!r.ok) continue;
       const d=await r.json();
       if(d?.user_info?.auth===1||d?.user_info?.username) return d;
-    }catch(e){ 
-      // Se falhar sem proxy, tenta com proxy; se falhar com proxy, sai
-      if(!proxy) continue;
-      return null;
-    }
+    }catch(e){ continue; }
   }
   return null;
 }
 
 // ══════════ LOGIN ══════════
 async function doLogin(){
+  const dns=(document.getElementById("i-url")?.value||"").trim().replace(/\/+$/,"");
   const usr=document.getElementById("i-usr").value.trim();
   const pwd=document.getElementById("i-pwd").value.trim();
-  let manualUrl=(document.getElementById("i-url")?.value||"").trim().replace(/\/+$/,"");
   const errEl=document.getElementById("err");
   const btn=document.getElementById("btn-conn");
   errEl.style.display="none";
 
+  if(!dns){
+    errEl.innerHTML="⚠ Preencha o DNS (servidor).";
+    errEl.style.display="block";
+    return;
+  }
   if(!usr||!pwd){
     errEl.innerHTML="⚠ Preencha usuário e senha.";
     errEl.style.display="block";
     return;
   }
 
-  // Normalizar URL manual — corrige typos como "htttp://" e garante esquema
-  if(manualUrl){
-    manualUrl=manualUrl.replace(/^htttp:\/\//,"http://").replace(/^htttps:\/\//,"https://");
-    if(!manualUrl.match(/^https?:\/\//)) manualUrl="http://"+manualUrl;
-  }
-
   btn.disabled=true;
+  btn.innerHTML=`<div class="spin"></div> Conectando...`;
 
-  // Monta lista de servidores a testar
-  const servers=[];
-  if(manualUrl) servers.push(manualUrl); // manual primeiro
-  servers.push(...DNS_SERVERS.filter(s=>s!==manualUrl));
+  const result=await tryServer(dns,usr,pwd);
 
-  if(!servers.length){
-    // Nenhum servidor cadastrado — pede URL manual
-    errEl.innerHTML="⚠ Nenhum servidor configurado.<br><small>Use ⚙ Configuração avançada e insira a URL do servidor.</small>";
-    errEl.style.display="block";
-    btn.disabled=false;
-    btn.innerHTML="▶ Entrar";
-    document.getElementById("adv-fields").style.display="block";
-    return;
-  }
-
-  let found=null;
-  for(let i=0;i<servers.length;i++){
-    btn.innerHTML=`<div class="spin"></div> Testando servidor ${i+1}/${servers.length}...`;
-    const result=await tryServer(servers[i],usr,pwd);
-    if(result){
-      found={data:result,server:servers[i]};
-      break;
-    }
-  }
-
-  if(!found){
-    errEl.innerHTML="⚠ Usuário ou senha incorretos.<br><small style='font-size:11px'>Verifique suas credenciais.</small>";
+  if(!result){
+    errEl.innerHTML="⚠ Falha ao conectar.<br><small style='font-size:11px'>Verifique DNS, usuário e senha.</small>";
     errEl.style.display="block";
     btn.disabled=false;
     btn.innerHTML="▶ Entrar";
@@ -1162,12 +1151,12 @@ async function doLogin(){
   }
 
   // Conectou!
-  S.server=found.server;
+  S.server=dns;
   S.user=usr;
   S.pass=pwd;
-  if(found.data.user_info){
-    S.expiry=found.data.user_info.exp_date?parseInt(found.data.user_info.exp_date)*1000:null;
-    S.maxCons=found.data.user_info.max_connections||null;
+  if(result.user_info){
+    S.expiry=result.user_info.exp_date?parseInt(result.user_info.exp_date)*1000:null;
+    S.maxCons=result.user_info.max_connections||null;
   }
   btn.disabled=false;
   btn.innerHTML="▶ Entrar";
@@ -2250,6 +2239,8 @@ function esc(s){return String(s||"").replace(/&/g,"&amp;").replace(/</g,"&lt;").
 show("sc-login");
 document.getElementById("i-pwd").addEventListener("keydown",e=>{if(e.key==="Enter")doLogin();});
 document.addEventListener("DOMContentLoaded",()=>{
+  const dns=document.getElementById("i-url");
+  if(dns) dns.addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("i-usr").focus();});
   const usr=document.getElementById("i-usr");
   if(usr) usr.addEventListener("keydown",e=>{if(e.key==="Enter")document.getElementById("i-pwd").focus();});
 });
